@@ -8,7 +8,7 @@ import { LoginButton } from '../components/LoginButton';
 import { Spinner } from '../components/Layout';
 
 type GroupRow = Pick<Group, 'id' | 'name' | 'event_at' | 'status' | 'owner_id'> & {
-  participants: { count: number }[];
+  participantCount: number;
 };
 
 export function Home() {
@@ -56,14 +56,26 @@ function MyGroups({ userId }: { userId: string }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase
-      .from('groups')
-      .select('id, name, event_at, status, owner_id, participants(count)')
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (error) setError(errorMessage(error));
-        else setGroups((data ?? []) as GroupRow[]);
-      });
+    Promise.all([
+      supabase.from('groups').select('id, name, event_at, status, owner_id').order('created_at', { ascending: false }),
+      supabase.from('participants').select('group_id'),
+    ]).then(([gRes, pRes]) => {
+      const err = gRes.error ?? pRes.error;
+      if (err) {
+        setError(errorMessage(err));
+        return;
+      }
+      const counts = new Map<string, number>();
+      for (const p of pRes.data ?? []) {
+        counts.set(p.group_id, (counts.get(p.group_id) ?? 0) + 1);
+      }
+      setGroups(
+        (gRes.data ?? []).map((g) => ({
+          ...g,
+          participantCount: counts.get(g.id) ?? 0,
+        })),
+      );
+    });
   }, []);
 
   return (
@@ -97,7 +109,7 @@ function MyGroups({ userId }: { userId: string }) {
               <p className="muted">{g.event_at ? `📅 ${formatShort(g.event_at)}` : 'Data a definir'}</p>
               <div className="tags">
                 <span className={`badge ${g.status}`}>{g.status === 'drawn' ? 'Sorteado' : 'Aberto'}</span>
-                <span className="badge">👥 {g.participants[0]?.count ?? 0}</span>
+                <span className="badge">👥 {g.participantCount}</span>
                 {g.owner_id === userId && <span className="badge owner">Organizador</span>}
               </div>
             </Link>
